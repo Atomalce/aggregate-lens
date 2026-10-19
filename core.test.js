@@ -1,0 +1,10 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {analyze,sqlFor} from './core.js';
+const orders=[{id:101,cents:10000},{id:102,cents:20000}];
+const refunds=[{id:201,cents:1000},{id:202,cents:2000},{id:203,cents:3000}];
+test('two orders and three refunds expand to six rows and multiply sums',()=>{const a=analyze(orders,refunds);assert.equal(a.rows.length,6);assert.deepEqual(a.naive,{orders:90000,refunds:12000});assert.deepEqual(a.preaggregate,{orders:30000,refunds:6000});});
+test('distinct amount undercounts different records with equal values',()=>{const a=analyze([{id:101,cents:10000},{id:102,cents:10000}],[{id:201,cents:1000},{id:202,cents:1000},{id:203,cents:3000}]);assert.deepEqual(a.distinct,{orders:10000,refunds:4000});assert.deepEqual(a.preaggregate,{orders:20000,refunds:5000});});
+test('empty sides are padded once; originals remain untouched',()=>{const before=JSON.stringify([orders,refunds]);assert.equal(analyze(orders,[]).rows.length,2);assert.deepEqual(analyze([],refunds).preaggregate,{orders:0,refunds:6000});assert.deepEqual(analyze([],[]).rows,[{orderId:null,orderCents:null,refundId:null,refundCents:null}]);analyze(orders,refunds);assert.equal(JSON.stringify([orders,refunds]),before);});
+test('input contract and boundary values',()=>{for(const invalid of [null,{},[null],[{id:0,cents:1}],[{id:1,cents:NaN}],[{id:1,cents:Infinity}],[{id:1,cents:1.5}],[{id:1,cents:-1}],[{id:1,cents:100000001}],[{id:1,cents:0},{id:1,cents:1}],Array.from({length:51},(_,i)=>({id:i+1,cents:0}))])assert.throws(()=>analyze(invalid,[]));const max=Array.from({length:50},(_,i)=>({id:i+1,cents:100000000}));assert.equal(analyze(max,max).rows.length,2500);assert.equal(analyze(max,max).naive.orders,250000000000);assert.equal(analyze([{id:1,cents:0}],[]).preaggregate.orders,0);});
+test('SQL modes are explicit',()=>{for(const mode of ['naive','distinct','preaggregate'])assert.match(sqlFor(mode),/SELECT/i);assert.throws(()=>sqlFor('bad'));});
